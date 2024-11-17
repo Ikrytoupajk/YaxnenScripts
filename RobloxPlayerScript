@@ -1,26 +1,46 @@
-local UIS = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
+-- Загрузка Rayfield
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
-local KeyCode = Enum.KeyCode.E -- Клавиша для включения/выключения полёта
+-- Создание основного окна
+local Window = Rayfield:CreateWindow({
+    Name = "Click Simulator",
+    LoadingTitle = "Rayfield Interface Suite",
+    LoadingSubtitle = "by Sirius",
+    Theme = "Default",
+    ConfigurationSaving = {
+        Enabled = true,
+        FileName = "Big Hub"
+    },
+    KeySystem = false
+})
+
+-- Переменные игрока и управления
 local Player = game.Players.LocalPlayer
-local Character = Player.Character or Player.CharacterAdded:Wait()
-local Humanoid = Character:WaitForChild("Humanoid")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local Camera = workspace.CurrentCamera
 
-local BodyVelocity = Instance.new("BodyVelocity")
-BodyVelocity.MaxForce = Vector3.new(100000000, 100000000, 100000000)
-BodyVelocity.P = 20000
-BodyVelocity.Velocity = Vector3.zero
+local currentSpeed = 16
+local currentJump = 50
+local isWallSpeedActive = false
+local isJumpPowerActive = false
+local isInfinityJumpActive = false
+local isNoClipActive = false
+local isFlyActive = false
+local Flying = false
+local Flymoving = Instance.new("BoolValue")
+Flymoving.Name = "Flymoving"
 
+local BodyVelocity = nil
 local BodyGyro = Instance.new("BodyGyro")
 BodyGyro.D = 500
 BodyGyro.P = 3000
 BodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
 
-local Flying = false
-local Flymoving = Instance.new("BoolValue", script) -- Состояние движения
-Flymoving.Name = "Flymoving"
+-- Создаём вкладки
+local PlayerTab = Window:CreateTab("Player")
+local MainTab = Window:CreateTab("Main")
 
 -- Функция для вычисления направления
 local function calculateDirection()
@@ -30,54 +50,98 @@ local function calculateDirection()
         return Vector3.zero
     end
 
-    -- Направление камеры
     local camDir = Camera.CFrame.LookVector
     local moveDir = Humanoid.MoveDirection
-    local flatCamDir = Vector3.new(camDir.X, 0, camDir.Z).Unit
-
-    -- Направление движения с учётом камеры
-    return (flatCamDir * moveDir.Z + Camera.CFrame.RightVector * moveDir.X).Unit
+    local flatDir = Vector3.new(camDir.X, 0, camDir.Z).Unit
+    return (flatDir * moveDir.Z + Camera.CFrame.RightVector * moveDir.X).Unit
 end
 
--- Функция для включения/выключения полёта
-local function toggleFly()
-    Flying = not Flying
-    if Flying then
-        -- Включение полёта
-        Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, false)
-        Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+-- Включение/выключение NoClip
+local function toggleNoClip(state)
+    isNoClipActive = state
+    local character = Player.Character
+    if character then
+        for _, part in pairs(character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = not state
+            end
+        end
+    end
+end
 
-        BodyVelocity.Parent = Character.HumanoidRootPart
-        BodyGyro.Parent = Character.HumanoidRootPart
+-- Включение/выключение полета
+local function toggleFly(state)
+    isFlyActive = state
+    local Character = Player.Character
+    if not Character then return end
+
+    local Humanoid = Character:FindFirstChild("Humanoid")
+    local RootPart = Character:FindFirstChild("HumanoidRootPart")
+
+    if isFlyActive then
+        -- Включение полета
+        if RootPart then
+            BodyVelocity = Instance.new("BodyVelocity")
+            BodyVelocity.MaxForce = Vector3.new(100000000, 100000000, 100000000)
+            BodyVelocity.Velocity = Vector3.zero
+            BodyVelocity.P = 20000
+            BodyVelocity.Parent = RootPart
+        end
+        BodyGyro.Parent = RootPart
     else
-        -- Выключение полёта
+        -- Отключение полета
         Flymoving.Value = false
-        BodyVelocity:Destroy()
+        if BodyVelocity then BodyVelocity:Destroy() end
         BodyGyro:Destroy()
-        Humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Freefall, true)
     end
 end
 
--- Обработка нажатия клавиши
-UIS.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == KeyCode then
-        toggleFly()
+-- Включение бесконечного прыжка
+local function toggleInfinityJump(state)
+    isInfinityJumpActive = state
+    if isInfinityJumpActive then
+        UIS.JumpRequest:Connect(function()
+            if isInfinityJumpActive then
+                local Character = Player.Character
+                local Humanoid = Character and Character:FindFirstChild("Humanoid")
+                if Humanoid then
+                    Humanoid:ChangeState("Jumping")
+                end
+            end
+        end)
     end
-end)
+end
 
--- Обработка движения при полёте
+-- Функция обновления скорости
+local function updateWalkSpeed(newSpeed)
+    local Character = Player.Character
+    local Humanoid = Character and Character:FindFirstChild("Humanoid")
+    if Humanoid then
+        currentSpeed = newSpeed
+        Humanoid.WalkSpeed = tonumber(newSpeed) or currentSpeed
+    end
+end
+
+-- Функция обновления силы прыжка
+local function updateJumpPower(newJump)
+    local Character = Player.Character
+    local Humanoid = Character and Character:FindFirstChild("Humanoid")
+    if Humanoid then
+        currentJump = newJump
+        Humanoid.JumpPower = tonumber(newJump) or currentJump
+    end
+end
+
+-- Обработка движения при полете
 RunService.RenderStepped:Connect(function()
-    if Flying then
+    if isFlyActive then
         local Character = Player.Character
         local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
         local Humanoid = Character and Character:FindFirstChild("Humanoid")
 
         if RootPart and Humanoid then
             Humanoid:ChangeState("Physics")
-            BodyGyro.CFrame = Camera.CFrame -- Устанавливаем направление взгляда камеры
+            BodyGyro.CFrame = Camera.CFrame
 
             local direction = calculateDirection()
             if direction == Vector3.zero then
@@ -91,171 +155,71 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- Rayfield интерфейс
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-
-local Window = Rayfield:CreateWindow({
-    Name = "Click Simulator",
-    LoadingTitle = "Rayfield Interface Suite",
-    LoadingSubtitle = "by Sirius",
-    Theme = "Default",
-    ConfigurationSaving = {
-        Enabled = true,
-        FileName = "Big Hub"
-    },
-    KeySystem = false
-})
-
--- Переменные для управления
-local currentSpeed = 16
-local currentJump = 50
-local isWallSpeedActive = false
-local isJumpPowerActive = false
-local isInfinityJumpActive = false
-local isNoClipActive = false
-local isFlyActive = false
-local bodyVelocity = nil
-
--- Создаём вкладки
-local PlayerTab = Window:CreateTab("Player")
-local MainTab = Window:CreateTab("Main")
-
--- Функция для изменения WalkSpeed
-local function updateWalkSpeed(newSpeed)
-    if Player.Character and Player.Character:FindFirstChild("Humanoid") then
-        local humanoid = Player.Character.Humanoid
-        currentSpeed = humanoid.WalkSpeed
-        humanoid.WalkSpeed = tonumber(newSpeed) or currentSpeed
-    end
-end
-
--- Функция для изменения JumpPower
-local function updateJumpPower(newJump)
-    if Player.Character and Player.Character:FindFirstChild("Humanoid") then
-        local humanoid = Player.Character.Humanoid
-        currentJump = humanoid.JumpPower
-        humanoid.JumpPower = tonumber(newJump) or currentJump
-    end
-end
-
--- Функция для активации/деактивации NoClip
-local function toggleNoClip(state)
-    isNoClipActive = state
-
-    local character = Player.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass('Humanoid')
-        if humanoid then
-            -- Включаем или выключаем NoClip
-            if isNoClipActive then
-                humanoid.PlatformStand = true -- Отключаем физику
-                for _, part in pairs(character:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false -- Отключаем столкновения
-                    end
-                end
-            else
-                humanoid.PlatformStand = false -- Включаем физику
-                for _, part in pairs(character:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = true -- Включаем столкновения
-                    end
-                end
-            end
-        end
-    end
-end
-
--- Функция для активации/деактивации полета
-local function toggleFly(state)
-    isFlyActive = state
-    local character = Player.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        local rootPart = character:FindFirstChild("HumanoidRootPart")
-
-        if isFlyActive then
-            -- Создаем BodyVelocity для полета
-            if rootPart then
-                bodyVelocity = Instance.new("BodyVelocity")
-                bodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)  -- Максимальная сила для движения
-                bodyVelocity.Velocity = Vector3.new(0, 0, 0)  -- Начальная скорость
-                bodyVelocity.P = 10000  -- Дельта сила
-                bodyVelocity.Parent = rootPart
-            end
-        else
-            -- Отключаем полет и удаляем BodyVelocity
-            if bodyVelocity then
-                bodyVelocity:Destroy()
-                bodyVelocity = nil
-            end
-        end
-    end
-end
-
--- Сохраняем данные после смерти
-local function onCharacterAdded(character)
-    -- Восстанавливаем настройки после респауна
-    local humanoid = character:WaitForChild("Humanoid")
-    humanoid.Died:Connect(function()
-        -- Восстановить настройки при смерти персонажа
-        wait(1) -- Немного задержки для восстановления
+-- Обработка респауна персонажа
+Player.CharacterAdded:Connect(function(Character)
+    local Humanoid = Character:WaitForChild("Humanoid")
+    Humanoid.Died:Connect(function()
+        wait(1)
         updateWalkSpeed(currentSpeed)
         updateJumpPower(currentJump)
         toggleNoClip(isNoClipActive)
         toggleFly(isFlyActive)
     end)
+end)
 
-    -- Инициализация настроек при первом появлении
-    updateWalkSpeed(currentSpeed)
-    updateJumpPower(currentJump)
-    toggleNoClip(isNoClipActive)
-    toggleFly(isFlyActive)
-end
-
--- Обработка респауна персонажа
-Player.CharacterAdded:Connect(onCharacterAdded)
-
--- Текстовое поле для WalkSpeed
-local WalkSpeedInput = PlayerTab:CreateInput({
+-- GUI настройки
+PlayerTab:CreateInput({
     Name = "WalkSpeed",
     PlaceholderText = "Enter WalkSpeed",
     RemoveTextAfterFocusLost = false,
     Callback = function(Value)
-        currentSpeed = Value
         updateWalkSpeed(Value)
     end
 })
 
--- Текстовое поле для JumpPower
-local JumpPowerInput = PlayerTab:CreateInput({
+PlayerTab:CreateInput({
     Name = "JumpPower",
     PlaceholderText = "Enter JumpPower",
     RemoveTextAfterFocusLost = false,
     Callback = function(Value)
-        currentJump = Value
         updateJumpPower(Value)
     end
 })
 
--- Кнопка с галочкой для бесконечного прыжка
-local InfinityJumpToggle = PlayerTab:CreateToggle({
+PlayerTab:CreateToggle({
     Name = "Infinite Jump",
-    CurrentValue = false, -- Начальное состояние - выключено
-    Flag = "infinityjump_toggle",
+    CurrentValue = false,
     Callback = function(State)
-        isInfinityJumpActive = State
+        toggleInfinityJump(State)
+    end
+})
 
-        if isInfinityJumpActive then
-            -- Активируем бесконечный прыжок
-            game:GetService('UserInputService').JumpRequest:Connect(function()
-                if isInfinityJumpActive then
-                    local humanoid = Player.Character and Player.Character:FindFirstChildOfClass('Humanoid')
-                    if humanoid then
-                        humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-                    end
-                end
-            end)
-        end
+PlayerTab:CreateToggle({
+    Name = "NoClip",
+    CurrentValue = false,
+    Callback = function(State)
+        toggleNoClip(State)
+    end
+})
+
+PlayerTab:CreateToggle({
+    Name = "Fly",
+    CurrentValue = false,
+    Callback = function(State)
+        toggleFly(State)
+    end
+})
+
+MainTab:CreateButton({
+    Name = "Example Button",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Button Clicked",
+            Content = "This is an example button from the Main tab!",
+            Duration = 5
+        })
+    end
+})
+
     end
 })
